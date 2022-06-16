@@ -1,0 +1,268 @@
+
+main page =>
+                 
+                admin => add stocks
+                    
+               check =>  phone => vaccine1=>
+               register=>
+                                    
+                    => dashboard
+                             =>vaccine 1,
+                            => vaccine 2
+
+
+check if patient is vaccinated with vaccine1
+
+
+
+app.post("/api/users/login",(req,res)=>{ //check for v1,v2
+    let {phone_number} = req.body;
+    client.query(`SELECT * FROM patient WHERE phone = $1`,
+      [phone_number],
+      (err,result)=>{
+          if(err)
+            throw err;
+
+        if(result.rows.length == 0)  //user not registered
+           {
+            res.send("User not registerd");
+         }
+        else{
+            res.send("Registered");
+        }
+    
+})
+});
+
+
+
+
+const eventsCache = await redis.exists("events");
+
+  if (eventsCache === 0) {
+    // cache miss
+    try {
+      const query = {
+        text: "SELECT * FROM events",
+      };
+
+      const response = await db.query(query);
+
+      let events = [];
+
+      if (response.rows.length > 0) {
+        // events >= 1
+
+        const rows = response.rows;
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        rows.forEach((element) => {
+          if (element.date >= today) {
+            events.push(element);
+          }
+        });
+      }
+
+      const eventObject = JSON.stringify(events);
+
+      await redis.set("events", eventObject);
+      redis.expire("events", 10);
+
+      return res.status(200).json({ cache: false, events });
+    } catch (error) {
+      console.error(error);
+    }
+  } else {
+    // cache hit
+
+    const events = await redis.get("events");
+
+    res.status(200).json({ cache: true, events: JSON.parse(events) });
+  }
+
+
+  /// my cache code
+  await redisClient.get("login",async(err5,result5)=>{
+    console.log("here")
+    if(err) throw err5;
+    if(await redisClient.exists('login')){
+        console.log("Cache hit");
+    }
+    else{
+        console.log("cache miss");
+       const result = await client.query(`SELECT * FROM patient WHERE phone = $1`,
+        [phone_number])
+        try{
+       await redisClient.set ("login",3600,JSON.stringify(result));
+          if(result.rows.length == 0)  //user not registered
+             {
+              res.send("User not registered");
+           }
+          else{
+              res.send(result.rows[0].name);
+          }
+      
+  }
+  catch(err){
+      console.log(err);
+  }
+   }
+})
+
+///////////////////////////  register
+
+
+app.post("/api/users/register",(req,res)=>{
+  let {name,phone_number} = req.body;
+
+ console.log(phone_number);
+    client.query(`SELECT * FROM patient WHERE phone = $1`,
+    [phone_number],
+    (err,result)=>{
+        if(err)
+          throw err;
+    
+
+      if(result.rows.length > 0)  //user already registered
+          res.send("already registered"); 
+      else{
+          var v1state = "PENDING";
+          var v2state = "INELIGIBLE";
+            
+          var current_date = new Date();
+          var day = ("0" + current_date.getDate()).slice(-2);
+          var month = ("0" + (current_date.getMonth() + 1)).slice(-2);
+          var year = current_date.getFullYear();
+          
+          var current_date = year + "-" + month + "-" + day;
+          client.query(`INSERT INTO patient(name,phone,v1state,v2state,created_date) VALUES ($1,$2,$3,$4,$5) RETURNING id`,
+          [name,phone_number,v1state,v2state,current_date],
+          async(err,result)=>{
+              if(err)
+                  throw err;
+              
+             
+      })
+
+      
+      client.query(`SELECT v1_buffer from stocks where id = 1`,
+      [],
+      (err,result)=>{
+          if(err) throw err;
+         
+          if(result.rows[0].v1_buffer > 0)
+          {
+              var status = "ACTIVE";
+              client.query(`UPDATE patient SET "v1state" = $1 where "phone" = $2`,
+              [status,phone_number],
+              (err,result)=>{
+                  if(err) throw err;
+
+              })
+              console.log("Active state");
+             // enQueue.enQueue1(phone_number);       // rabbitmq
+              client.query(`UPDATE stocks SET "v1_buffer" = "v1_buffer" - 1`)
+
+              res.send("Registered")
+          }
+          else{
+              res.send("Wait for sometime"); //window alert
+              //enQueue.enQueue1(phone_number)//rabbitmq
+          }
+      });
+      }
+      
+
+    })
+});
+
+
+//  9994453437 
+
+const { AuthRegistrationsCredentialListMappingContext } = require("twilio/lib/rest/api/v2010/account/sip/domain/authTypes/authRegistrationsMapping/authRegistrationsCredentialListMapping");
+const {client} = require("../database/databaseCon")
+const enQueue = require("../rabbitmq/rabbitmq")
+var registration_func = async function(name,phone_number,enteredOTP,OTP){
+    let ret;
+    if(enteredOTP == OTP){
+   
+   try{
+      const result = await client.query(`SELECT * FROM patient WHERE phone = $1`,
+      [phone_number])
+      
+        if(result.rows.length > 0)  //user already registered
+           {
+             
+               ret = "already registered";
+            
+            }
+        else{
+            
+            var v1state = "PENDING";
+            var v2state = "INELIGIBLE";
+              
+            var current_date = new Date();
+            var day = ("0" + current_date.getDate()).slice(-2);
+            var month = ("0" + (current_date.getMonth() + 1)).slice(-2);
+            var year = current_date.getFullYear();
+            
+            var current_date = year + "-" + month + "-" + day;
+            try{
+           const ins = await client.query(`INSERT INTO patient(name,phone,v1state,v2state,created_date) VALUES ($1,$2,$3,$4,$5) RETURNING id`,
+            [name,phone_number,v1state,v2state,current_date]);
+            }
+            catch(err)
+            {
+                console.log(err);
+            }
+    try{
+      const ans = await  client.query(`SELECT v1_buffer from stocks where id = 1`,
+        [])
+        
+            if(ans.rows[0].v1_buffer > 0)
+            {
+                var status = "ACTIVE";
+                try{
+               const upd = await client.query(`UPDATE patient SET "v1state" = $1 where "phone" = $2`,
+                [status,phone_number])
+                }
+                catch(err) 
+                {
+                    console.log(err);
+                }
+                console.log("Active state");
+                let details = {"name": name, "phone": phone_number, state: "can vaccinate"  };
+                details = JSON.stringify(details)
+
+                enQueue.enQueue1(details);       // rabbitmq
+               const upd1 = await client.query(`UPDATE stocks SET "v1_buffer" = "v1_buffer" - 1`);
+
+                ret =  "Registered";
+            }
+            else{
+                ret =  "Wait for sometime"; //window alert
+                //enQueue.enQueue1(phone_number)//rabbitmq
+            }
+        }
+        catch(er)
+            {
+                console.log(er);
+            }
+        }
+      }
+      catch(err){
+        console.log(err)
+      }
+    }
+    else{
+        return "Wrong OTP"
+    }
+      return ret;
+}
+
+module.exports = 
+{
+    registration_func
+}
